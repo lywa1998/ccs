@@ -188,7 +188,7 @@ pub fn run(mut app: App) -> (App, Option<String>) {
 
             // ── header ──
             let header = Paragraph::new(Line::from(vec![
-                Span::styled("cc", Style::default().fg(ACCENT).add_modifier(Modifier::BOLD)),
+                Span::styled("ccs", Style::default().fg(ACCENT).add_modifier(Modifier::BOLD)),
                 Span::styled("  profile manager for Claude Code", Style::default().fg(MUTED)),
             ]));
             frame.render_widget(

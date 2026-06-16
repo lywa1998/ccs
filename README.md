@@ -1,4 +1,4 @@
-# cc
+# ccs
 
 Interactive profile switcher for [Claude Code](https://claude.ai/code).  
 Quickly switch between different API providers and model configurations via a terminal UI.
@@ -7,7 +7,7 @@ Quickly switch between different API providers and model configurations via a te
 
 Recommend via cargo-binstall:
 ```bash
-cargo binstall --git https://github.com/lywa1998/cc.git cc
+cargo binstall --git https://github.com/lywa1998/cc.git ccs
 ```
 
 ```bash
@@ -64,8 +64,8 @@ All model fields are optional. Unset fields are simply not passed to Claude Code
 ## Usage
 
 ```bash
-cc              # open the TUI profile picker
-cc <profile>    # launch directly with a profile
+ccs              # open the TUI profile picker
+ccs <profile>    # launch directly with a profile
 ```
 
 ### Keybindings
