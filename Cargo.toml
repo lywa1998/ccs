@@ -4,7 +4,7 @@ version = "0.1.1"
 edition = "2021"
 description = "Interactive profile switcher for Claude Code"
 license = "MIT"
-repository = "https://github.com/lywa1998/ccs"
+repository = "https://github.com/lywa1998/cc"
 readme = "README.md"
 
 [[bin]]
