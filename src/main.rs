@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::env;
+use std::os::unix::process::CommandExt;
 use std::process::{self, Command};
 
 use ratatui::style::Color;
@@ -32,17 +33,16 @@ fn launch(profile: &config::Profile) -> ! {
     let mut args = vec!["--dangerously-skip-permissions".to_string()];
     args.extend(user_args);
 
-    let status = Command::new("claude")
+    let err = Command::new("claude")
         .args(&args)
         .stdin(process::Stdio::inherit())
         .stdout(process::Stdio::inherit())
         .stderr(process::Stdio::inherit())
         .env_clear()
         .envs(&env_map)
-        .status()
-        .unwrap_or_else(|e| fatal(&format!("failed to launch claude: {e}")));
+        .exec();
 
-    process::exit(status.code().unwrap_or(1));
+    fatal(&format!("failed to launch claude: {err}"));
 }
 
 fn main() {
