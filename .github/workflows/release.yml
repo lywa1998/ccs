@@ -17,8 +17,6 @@ jobs:
             os: ubuntu-latest
           - target: aarch64-apple-darwin
             os: macos-latest
-          - target: x86_64-apple-darwin
-            os: macos-13
 
     runs-on: ${{ matrix.os }}
 
@@ -35,9 +33,9 @@ jobs:
       - name: Package (unix)
         run: |
           cd target/${{ matrix.target }}/release
-          tar czf ../../../cc-switch-${{ matrix.target }}.tar.gz cc-switch
+          tar czf ../../../cc-${{ matrix.target }}.tar.gz cc
 
       - name: Upload to release
         uses: softprops/action-gh-release@v2
         with:
-          files: cc-switch-${{ matrix.target }}.tar.gz
+          files: cc-${{ matrix.target }}.tar.gz

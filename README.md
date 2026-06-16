@@ -1,4 +1,4 @@
-# cc-switch
+# cc
 
 Interactive profile switcher for [Claude Code](https://claude.ai/code).  
 Quickly switch between different API providers and model configurations via a terminal UI.
@@ -12,7 +12,7 @@ cargo install --git https://github.com/lywa1998/cc.git
 Or use `cargo binstall` from GitHub Releases:
 
 ```bash
-cargo binstall --git https://github.com/lywa1998/cc.git cc-switch
+cargo binstall --git https://github.com/lywa1998/cc.git cc
 ```
 
 ## Configuration
@@ -46,8 +46,8 @@ env_key = "OTHER_API_KEY"
 ## Usage
 
 ```bash
-cc-switch              # open the TUI profile picker
-cc-switch <profile>    # launch directly with a profile
+cc              # open the TUI profile picker
+cc <profile>    # launch directly with a profile
 ```
 
 ### Keybindings
