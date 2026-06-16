@@ -6,7 +6,6 @@ use std::process::{self, Command};
 use ratatui::style::Color;
 
 mod config;
-mod preview;
 mod tui;
 
 use config::{load_config, resolve_profile};
