@@ -18,6 +18,7 @@ enum Focus {
 enum InputState {
     None,
     Editing { buffer: String, cursor: usize },
+    Creating { buffer: String, cursor: usize },
 }
 
 pub struct App {
@@ -243,45 +244,72 @@ pub fn run(mut app: App) -> (App, Option<String>) {
 
             frame.render_stateful_widget(list, body[0], &mut app.profile_list);
 
-            // ── right: field editor ──
-            let selected = app.selected_name().unwrap_or("");
-            let profile = app.config.profiles.get(selected);
-
-            let field_items = if let Some(profile) = profile {
-                build_field_items(profile, app.field_idx, &app.input)
-            } else {
-                vec![ListItem::new("")]
-            };
-
+            // ── right: field editor or create form ──
             let right_border = if app.focus == Focus::Right {
                 Style::default().fg(ACCENT)
             } else {
                 Style::default().fg(MUTED)
             };
 
-            let mut field_list = List::new(field_items)
+            if let InputState::Creating { buffer, cursor } = &app.input {
+                let c = (*cursor).min(buffer.len());
+                let mut display = buffer.clone();
+                display.insert(c, '█');
+                let create_text = Paragraph::new(Line::from(vec![
+                    Span::raw("\n"),
+                    Span::raw("  "),
+                    Span::styled("name: ", Style::default().fg(MUTED)),
+                    Span::styled(display, Style::default().fg(Color::Yellow)),
+                    Span::raw("\n\n  "),
+                    Span::styled("Enter", Style::default().fg(ACCENT).add_modifier(Modifier::BOLD)),
+                    Span::styled(" to create, ", Style::default().fg(MUTED)),
+                    Span::styled("Esc", Style::default().fg(ACCENT).add_modifier(Modifier::BOLD)),
+                    Span::styled(" to cancel", Style::default().fg(MUTED)),
+                ]))
                 .block(
                     Block::bordered()
                         .border_style(right_border)
-                        .title(Span::styled(
-                            format!(" {} ", selected),
-                            Style::default().fg(ACCENT).add_modifier(Modifier::BOLD),
-                        )),
-                )
-                .highlight_style(Style::default().fg(Color::Black).bg(ACCENT));
+                        .title(Span::styled(" New Profile ", Style::default().fg(ACCENT).add_modifier(Modifier::BOLD))),
+                );
+                frame.render_widget(create_text, body[1]);
+            } else {
+                let selected = app.selected_name().unwrap_or("");
+                let profile = app.config.profiles.get(selected);
+                let field_items = if let Some(profile) = profile {
+                    build_field_items(profile, app.field_idx, &app.input)
+                } else {
+                    vec![ListItem::new("")]
+                };
 
-            if app.focus == Focus::Right {
-                field_list = field_list.highlight_symbol(" ▸");
-            }
+                let mut field_list = List::new(field_items)
+                    .block(
+                        Block::bordered()
+                            .border_style(right_border)
+                            .title(Span::styled(
+                                format!(" {} ", selected),
+                                Style::default().fg(ACCENT).add_modifier(Modifier::BOLD),
+                            )),
+                    )
+                    .highlight_style(Style::default().fg(Color::Black).bg(ACCENT));
 
-            let mut field_state = ListState::default();
-            if app.focus == Focus::Right {
-                field_state.select(Some(app.field_list_idx()));
+                if app.focus == Focus::Right {
+                    field_list = field_list.highlight_symbol(" ▸");
+                }
+
+                let mut field_state = ListState::default();
+                if app.focus == Focus::Right {
+                    field_state.select(Some(app.field_list_idx()));
+                }
+                frame.render_stateful_widget(field_list, body[1], &mut field_state);
             }
-            frame.render_stateful_widget(field_list, body[1], &mut field_state);
 
             // ── footer ──
             let footer = match (&app.input, app.focus) {
+                (InputState::Creating { .. }, _) => Line::from(vec![
+                    footer_span("Enter", "create"),
+                    Span::raw(" "),
+                    footer_span("Esc", "cancel"),
+                ]),
                 (InputState::Editing { .. }, _) => Line::from(vec![
                     footer_span("Enter", "confirm"),
                     Span::raw(" "),
@@ -289,6 +317,8 @@ pub fn run(mut app: App) -> (App, Option<String>) {
                 ]),
                 (InputState::None, Focus::Left) => Line::from(vec![
                     footer_span("↑↓/jk", "navigate"),
+                    Span::raw(" "),
+                    footer_span("n", "new"),
                     Span::raw(" "),
                     footer_span("→", "edit"),
                     Span::raw(" "),
@@ -315,6 +345,36 @@ pub fn run(mut app: App) -> (App, Option<String>) {
         match event::read() {
             Ok(Event::Key(key)) if key.kind == KeyEventKind::Press => {
                 match &mut app.input {
+                    InputState::Creating { buffer, cursor } => match key.code {
+                        KeyCode::Enter => {
+                            let name = buffer.trim().to_string();
+                            if !name.is_empty() && !app.config.profiles.contains_key(&name) {
+                                app.config.profiles.insert(name.clone(), config::Profile::default());
+                                config::save_config(&app.config);
+                                app.names.clear();
+                                app.names.extend(app.config.profiles.keys().cloned());
+                                app.names.sort();
+                                if let Some(pos) = app.names.iter().position(|n| n == &name) {
+                                    app.profile_list.select(Some(pos));
+                                }
+                            }
+                            app.input = InputState::None;
+                        }
+                        KeyCode::Esc => app.input = InputState::None,
+                        KeyCode::Backspace => {
+                            if *cursor > 0 {
+                                buffer.remove(*cursor - 1);
+                                *cursor -= 1;
+                            }
+                        }
+                        KeyCode::Left => *cursor = cursor.saturating_sub(1),
+                        KeyCode::Right => *cursor = (*cursor + 1).min(buffer.len()),
+                        KeyCode::Char(c) => {
+                            buffer.insert(*cursor, c);
+                            *cursor += 1;
+                        }
+                        _ => {}
+                    },
                     InputState::Editing { buffer, cursor } => match key.code {
                         KeyCode::Enter => {
                             let saved = buffer.clone();
@@ -367,6 +427,12 @@ pub fn run(mut app: App) -> (App, Option<String>) {
                             KeyCode::Down | KeyCode::Char('j') => app.profile_next(),
                             KeyCode::Up | KeyCode::Char('k') => app.profile_prev(),
                             KeyCode::Right => app.focus = Focus::Right,
+                            KeyCode::Char('n') => {
+                                app.input = InputState::Creating {
+                                    buffer: String::new(),
+                                    cursor: 0,
+                                };
+                            }
                             _ => {}
                         },
                         Focus::Right => match key.code {

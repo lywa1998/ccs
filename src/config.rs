@@ -46,7 +46,7 @@ pub struct Config {
 fn config_path() -> String {
     let home = env::var("HOME").or_else(|_| env::var("USERPROFILE"))
         .expect("cannot determine home directory");
-    format!("{home}/.config/cl/config.toml")
+    format!("{home}/.config/cc/config.toml")
 }
 
 pub fn load_config() -> Config {
