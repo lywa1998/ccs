@@ -8,7 +8,7 @@ use ratatui::style::Color;
 mod config;
 mod tui;
 
-use config::{load_config, resolve_profile};
+use config::load_config;
 
 pub(crate) const ACCENT: Color = Color::Cyan;
 pub(crate) const MUTED: Color = Color::DarkGray;
@@ -51,9 +51,9 @@ fn main() {
     match selected {
         Some(name) => {
             let config = load_config();
-            match resolve_profile(&config, &name) {
-                Ok(profile) => launch(&profile),
-                Err(e) => fatal(&e),
+            match config.profiles.get(&name) {
+                Some(profile) => launch(profile),
+                None => fatal(&format!("unknown profile \"{name}\"")),
             }
         }
         None => {

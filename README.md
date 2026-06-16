@@ -25,7 +25,7 @@ description = "DeepSeek"
 
 [profiles.deepseek.models]
 default = "deepseek-v4-pro[1m]"
-small_fast = "deepseek-v4-flash"
+default_fable = "deepseek-v4-pro[1m]"
 
 [profiles.deepseek.provider]
 base_url = "https://api.deepseek.com/anthropic"

@@ -77,15 +77,14 @@ impl App {
 
     fn field_list_idx(&self) -> usize {
         match self.field_idx {
-            0 => 1,  // extends
-            1 => 2,  // description
-            2 => 4,  // default
-            3 => 5,  // small_fast
-            4 => 6,  // default_haiku
-            5 => 7,  // default_sonnet
-            6 => 8,  // default_opus
-            7 => 10, // base_url
-            8 => 11, // env_key
+            0 => 1,  // description
+            1 => 3,  // default
+            2 => 4,  // small_fast
+            3 => 5,  // default_haiku
+            4 => 6,  // default_sonnet
+            5 => 7,  // default_opus
+            6 => 9,  // base_url
+            7 => 10, // env_key
             _ => 1,
         }
     }
