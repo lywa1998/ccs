@@ -320,6 +320,8 @@ pub fn run(mut app: App) -> (App, Option<String>) {
                     Span::raw(" "),
                     footer_span("n", "new"),
                     Span::raw(" "),
+                    footer_span("d", "delete"),
+                    Span::raw(" "),
                     footer_span("→", "edit"),
                     Span::raw(" "),
                     footer_span("Enter", "select"),
@@ -432,6 +434,21 @@ pub fn run(mut app: App) -> (App, Option<String>) {
                                     buffer: String::new(),
                                     cursor: 0,
                                 };
+                            }
+                            KeyCode::Char('d') => {
+                                if let Some(name) = app.selected_name().map(|s| s.to_string()) {
+                                    app.config.profiles.remove(&name);
+                                    config::save_config(&app.config);
+                                    app.names.clear();
+                                    app.names.extend(app.config.profiles.keys().cloned());
+                                    app.names.sort();
+                                    if app.names.is_empty() {
+                                        app.profile_list.select(None);
+                                    } else {
+                                        let idx = app.selected_index().min(app.names.len() - 1);
+                                        app.profile_list.select(Some(idx));
+                                    }
+                                }
                             }
                             _ => {}
                         },

@@ -5,6 +5,11 @@ Quickly switch between different API providers and model configurations via a te
 
 ## Install
 
+Recommend via cargo-binstall:
+```bash
+cargo binstall --git https://github.com/lywa1998/cc.git cc
+```
+
 ```bash
 cargo install --git https://github.com/lywa1998/cc.git
 ```
