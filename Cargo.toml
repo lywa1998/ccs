@@ -1,6 +1,6 @@
 [package]
 name = "cc"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 description = "Interactive profile switcher for Claude Code"
 license = "MIT"
