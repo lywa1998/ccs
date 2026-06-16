@@ -1,0 +1,25 @@
+[package]
+name = "cc-switch"
+version = "0.1.0"
+edition = "2021"
+description = "Interactive profile switcher for Claude Code"
+license = "MIT"
+repository = "https://github.com/lywa1998/cc"
+readme = "README.md"
+
+[[bin]]
+name = "cc-switch"
+path = "src/main.rs"
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+toml = "0.8"
+ratatui = "0.29"
+crossterm = "0.28"
+url = { version = "2", features = ["serde"] }
+
+[profile.release]
+opt-level = "z"
+lto = true
+codegen-units = 1
+strip = true
