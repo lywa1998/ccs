@@ -35,9 +35,9 @@ jobs:
       - name: Package (unix)
         run: |
           cd target/${{ matrix.target }}/release
-          tar czf ../../../cc-${{ matrix.target }}.tar.gz cc
+          tar czf ../../../cc-switch-${{ matrix.target }}.tar.gz cc-switch
 
       - name: Upload to release
         uses: softprops/action-gh-release@v2
         with:
-          files: cc-${{ matrix.target }}.tar.gz
+          files: cc-switch-${{ matrix.target }}.tar.gz
