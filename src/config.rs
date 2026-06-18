@@ -2,13 +2,14 @@ use std::collections::HashMap;
 use std::env;
 
 use serde::{Deserialize, Serialize};
-use url::Url;
+
+use crate::fatal;
 
 // ── types ──────────────────────────────────────────────────────────────────
 
 #[derive(Deserialize, Serialize, Clone)]
 pub struct Provider {
-    pub base_url: Url,
+    pub base_url: String,
     pub env_key: String,
 }
 
@@ -19,11 +20,13 @@ pub struct Models {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub default_fable: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub default_haiku: Option<String>,
+    pub default_opus: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub default_sonnet: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub default_opus: Option<String>,
+    pub default_haiku: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub subagent: Option<String>,
 }
 
 #[derive(Deserialize, Serialize, Clone, Default)]
@@ -44,9 +47,10 @@ pub struct Config {
 // ── config loading ─────────────────────────────────────────────────────────
 
 fn config_path() -> String {
-    let home = env::var("HOME").or_else(|_| env::var("USERPROFILE"))
+    let home = env::var("HOME")
+        .or_else(|_| env::var("USERPROFILE"))
         .expect("cannot determine home directory");
-    format!("{home}/.config/cc/config.toml")
+    format!("{home}/.config/ccs/config.toml")
 }
 
 pub fn load_config() -> Config {
@@ -67,12 +71,13 @@ pub fn build_env(profile: &Profile, reveal: bool) -> HashMap<String, String> {
     let mut env_map = HashMap::new();
 
     if let Some(ref models) = profile.models {
-        let pairs: [(&str, &Option<String>); 5] = [
+        let pairs: [(&str, &Option<String>); 6] = [
             ("ANTHROPIC_MODEL", &models.default),
             ("ANTHROPIC_DEFAULT_FABLE_MODEL", &models.default_fable),
-            ("ANTHROPIC_DEFAULT_HAIKU_MODEL", &models.default_haiku),
-            ("ANTHROPIC_DEFAULT_SONNET_MODEL", &models.default_sonnet),
             ("ANTHROPIC_DEFAULT_OPUS_MODEL", &models.default_opus),
+            ("ANTHROPIC_DEFAULT_SONNET_MODEL", &models.default_sonnet),
+            ("ANTHROPIC_DEFAULT_HAIKU_MODEL", &models.default_haiku),
+            ("CLAUDE_CODE_SUBAGENT_MODEL", &models.subagent),
         ];
         for (key, val) in pairs {
             if let Some(ref v) = val {
@@ -82,7 +87,7 @@ pub fn build_env(profile: &Profile, reveal: bool) -> HashMap<String, String> {
     }
 
     if let Some(ref provider) = profile.provider {
-        env_map.insert("ANTHROPIC_BASE_URL".into(), provider.base_url.to_string());
+        env_map.insert("ANTHROPIC_BASE_URL".into(), provider.base_url.clone());
         if reveal {
             let token = env::var(&provider.env_key).unwrap_or_else(|_| {
                 fatal(&format!(
@@ -93,7 +98,10 @@ pub fn build_env(profile: &Profile, reveal: bool) -> HashMap<String, String> {
             env_map.insert("ANTHROPIC_AUTH_TOKEN".into(), token);
             env_map.insert("ANTHROPIC_API_KEY".into(), String::new());
         } else {
-            env_map.insert("ANTHROPIC_AUTH_TOKEN".into(), format!("${}", provider.env_key));
+            env_map.insert(
+                "ANTHROPIC_AUTH_TOKEN".into(),
+                format!("${}", provider.env_key),
+            );
             env_map.insert("ANTHROPIC_API_KEY".into(), "(cleared)".into());
         }
     }
@@ -124,54 +132,116 @@ fn none_if_empty(s: String) -> Option<String> {
     if s.is_empty() { None } else { Some(s) }
 }
 
+macro_rules! model_field {
+    ($get:ident, $set:ident, $field:ident) => {
+        fn $get(p: &Profile) -> Option<String> { p.models.as_ref()?.$field.clone() }
+        fn $set(p: &mut Profile, v: String) { p.models.get_or_insert_default().$field = none_if_empty(v); }
+    };
+}
+
 // Profile section
 fn get_description(p: &Profile) -> Option<String> { p.description.clone() }
 fn set_description(p: &mut Profile, v: String) { p.description = none_if_empty(v); }
 
 // Models section
-fn get_default(p: &Profile) -> Option<String> { p.models.as_ref()?.default.clone() }
-fn set_default(p: &mut Profile, v: String) { p.models.get_or_insert_default().default = none_if_empty(v); }
-
-fn get_default_fable(p: &Profile) -> Option<String> { p.models.as_ref()?.default_fable.clone() }
-fn set_default_fable(p: &mut Profile, v: String) { p.models.get_or_insert_default().default_fable = none_if_empty(v); }
-
-fn get_default_haiku(p: &Profile) -> Option<String> { p.models.as_ref()?.default_haiku.clone() }
-fn set_default_haiku(p: &mut Profile, v: String) { p.models.get_or_insert_default().default_haiku = none_if_empty(v); }
-
-fn get_default_sonnet(p: &Profile) -> Option<String> { p.models.as_ref()?.default_sonnet.clone() }
-fn set_default_sonnet(p: &mut Profile, v: String) { p.models.get_or_insert_default().default_sonnet = none_if_empty(v); }
-
-fn get_default_opus(p: &Profile) -> Option<String> { p.models.as_ref()?.default_opus.clone() }
-fn set_default_opus(p: &mut Profile, v: String) { p.models.get_or_insert_default().default_opus = none_if_empty(v); }
+model_field!(get_default, set_default, default);
+model_field!(get_default_fable, set_default_fable, default_fable);
+model_field!(get_default_opus, set_default_opus, default_opus);
+model_field!(get_default_sonnet, set_default_sonnet, default_sonnet);
+model_field!(get_default_haiku, set_default_haiku, default_haiku);
+model_field!(get_subagent, set_subagent, subagent);
 
 // Provider section
-fn get_base_url(p: &Profile) -> Option<String> { Some(p.provider.as_ref()?.base_url.to_string()) }
+fn get_base_url(p: &Profile) -> Option<String> {
+    Some(p.provider.as_ref()?.base_url.clone())
+}
 fn set_base_url(p: &mut Profile, v: String) {
-    if v.is_empty() { return; }
-    if let Ok(url) = Url::parse(&v) {
-        let pr = match p.provider { Some(ref mut pr) => pr, None => { p.provider = Some(Provider { base_url: url.clone(), env_key: String::new() }); p.provider.as_mut().unwrap() } };
-        pr.base_url = url;
+    if v.is_empty() {
+        return;
     }
+    let pr = match p.provider {
+        Some(ref mut pr) => pr,
+        None => {
+            p.provider = Some(Provider {
+                base_url: String::new(),
+                env_key: String::new(),
+            });
+            p.provider.as_mut().unwrap()
+        }
+    };
+    pr.base_url = v;
 }
 
-fn get_env_key(p: &Profile) -> Option<String> { p.provider.as_ref().map(|pr| pr.env_key.clone()) }
+fn get_env_key(p: &Profile) -> Option<String> {
+    p.provider.as_ref().map(|pr| pr.env_key.clone())
+}
 fn set_env_key(p: &mut Profile, v: String) {
-    let pr = match p.provider { Some(ref mut pr) => pr, None => { p.provider = Some(Provider { base_url: Url::parse("https://localhost").unwrap(), env_key: String::new() }); p.provider.as_mut().unwrap() } };
+    let pr = match p.provider {
+        Some(ref mut pr) => pr,
+        None => {
+            p.provider = Some(Provider {
+                base_url: String::new(),
+                env_key: String::new(),
+            });
+            p.provider.as_mut().unwrap()
+        }
+    };
     pr.env_key = v;
 }
 
 pub const PROFILE_FIELDS: &[FieldDef] = &[
-    FieldDef { label: "description",     section: "Profile",  get: get_description,     set: set_description },
-    FieldDef { label: "default",         section: "Models",   get: get_default,         set: set_default },
-    FieldDef { label: "default_fable",   section: "Models",   get: get_default_fable,   set: set_default_fable },
-    FieldDef { label: "default_haiku",   section: "Models",   get: get_default_haiku,   set: set_default_haiku },
-    FieldDef { label: "default_sonnet",  section: "Models",   get: get_default_sonnet,  set: set_default_sonnet },
-    FieldDef { label: "default_opus",    section: "Models",   get: get_default_opus,    set: set_default_opus },
-    FieldDef { label: "base_url",        section: "Provider", get: get_base_url,        set: set_base_url },
-    FieldDef { label: "env_key",         section: "Provider", get: get_env_key,         set: set_env_key },
+    FieldDef {
+        label: "description",
+        section: "Profile",
+        get: get_description,
+        set: set_description,
+    },
+    FieldDef {
+        label: "default",
+        section: "Models",
+        get: get_default,
+        set: set_default,
+    },
+    FieldDef {
+        label: "fable",
+        section: "Models",
+        get: get_default_fable,
+        set: set_default_fable,
+    },
+    FieldDef {
+        label: "opus",
+        section: "Models",
+        get: get_default_opus,
+        set: set_default_opus,
+    },
+    FieldDef {
+        label: "sonnet",
+        section: "Models",
+        get: get_default_sonnet,
+        set: set_default_sonnet,
+    },
+    FieldDef {
+        label: "haiku",
+        section: "Models",
+        get: get_default_haiku,
+        set: set_default_haiku,
+    },
+    FieldDef {
+        label: "subagent",
+        section: "Models",
+        get: get_subagent,
+        set: set_subagent,
+    },
+    FieldDef {
+        label: "base_url",
+        section: "Provider",
+        get: get_base_url,
+        set: set_base_url,
+    },
+    FieldDef {
+        label: "env_key",
+        section: "Provider",
+        get: get_env_key,
+        set: set_env_key,
+    },
 ];
-
-fn fatal(msg: &str) -> ! {
-    eprintln!("\x1b[31merror\x1b[0m: {msg}");
-    std::process::exit(1);
-}

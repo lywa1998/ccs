@@ -77,17 +77,19 @@ impl App {
     }
 
     fn field_list_idx(&self) -> usize {
-        match self.field_idx {
-            0 => 1,  // description
-            1 => 3,  // default
-            2 => 4,  // small_fast
-            3 => 5,  // default_haiku
-            4 => 6,  // default_sonnet
-            5 => 7,  // default_opus
-            6 => 9,  // base_url
-            7 => 10, // env_key
-            _ => 1,
+        let mut visual = 0;
+        let mut prev_section: Option<&str> = None;
+        for (i, field) in PROFILE_FIELDS.iter().enumerate() {
+            if prev_section != Some(field.section) {
+                visual += 1; // section header
+                prev_section = Some(field.section);
+            }
+            if i == self.field_idx {
+                return visual;
+            }
+            visual += 1;
         }
+        1
     }
 
     fn field_next(&mut self) {
@@ -101,9 +103,37 @@ impl App {
             self.field_idx - 1
         };
     }
+
+    pub fn into_config(self) -> Config {
+        self.config
+    }
+
+    fn refresh_names(&mut self) {
+        self.names.clear();
+        self.names.extend(self.config.profiles.keys().cloned());
+        self.names.sort();
+    }
 }
 
-fn footer_span(key: &str, _desc: &str) -> Span<'static> {
+fn handle_edit_key(buffer: &mut String, cursor: &mut usize, code: KeyCode) {
+    match code {
+        KeyCode::Backspace => {
+            if *cursor > 0 {
+                buffer.remove(*cursor - 1);
+                *cursor -= 1;
+            }
+        }
+        KeyCode::Left => *cursor = cursor.saturating_sub(1),
+        KeyCode::Right => *cursor = (*cursor + 1).min(buffer.len()),
+        KeyCode::Char(c) => {
+            buffer.insert(*cursor, c);
+            *cursor += 1;
+        }
+        _ => {}
+    }
+}
+
+fn footer_span(key: &str) -> Span<'static> {
     Span::styled(
         format!(" {key} "),
         Style::default()
@@ -114,39 +144,58 @@ fn footer_span(key: &str, _desc: &str) -> Span<'static> {
 }
 
 /// Build the field list items (with section headers) for the right panel.
-fn build_field_items<'a>(profile: &'a config::Profile, field_idx: usize, input: &'a InputState) -> Vec<ListItem<'a>> {
+/// `focused` indicates whether the right panel has focus.
+fn build_field_items<'a>(
+    profile: &'a config::Profile,
+    field_idx: usize,
+    input: &'a InputState,
+    focused: bool,
+) -> Vec<ListItem<'a>> {
     let mut items: Vec<ListItem> = Vec::new();
     let mut current_section: Option<&str> = None;
 
     for (i, field) in PROFILE_FIELDS.iter().enumerate() {
-        // Insert section header if section changed
         if current_section != Some(field.section) {
             current_section = Some(field.section);
-            let header = Span::styled(
-                format!(" {} ", field.section),
+            items.push(ListItem::new(Line::from(Span::styled(
+                format!("  {} ", field.section),
                 Style::default().fg(ACCENT).add_modifier(Modifier::BOLD),
-            );
-            items.push(ListItem::new(Line::from(header)));
+            ))));
         }
 
         let value = (field.get)(profile);
-        let value_str: String = value.clone().unwrap_or_default();
+        let is_set = value.is_some();
+        let value_str = value.unwrap_or_default();
 
         let line = match input {
             InputState::Editing { buffer, cursor } if i == field_idx => {
-                render_input_line(field.label, buffer, *cursor)
+                let cursor = (*cursor).min(buffer.len());
+                let mut display = String::with_capacity(buffer.len() + 1);
+                use std::fmt::Write;
+                write!(display, "{}█{}", &buffer[..cursor], &buffer[cursor..]).unwrap();
+                Line::from(vec![
+                    Span::raw(if focused { " ▸" } else { "  " }),
+                    Span::styled(field.label.to_string(), Style::default().fg(MUTED)),
+                    Span::raw("  "),
+                    Span::styled(display, Style::default().fg(Color::Yellow)),
+                ])
             }
             _ => {
-                let val_style = if value.is_some() {
+                let val_style = if is_set {
                     Style::default().fg(Color::Green)
                 } else {
                     Style::default().fg(MUTED)
                 };
+                let bullet = if focused && i == field_idx {
+                    " ▸"
+                } else {
+                    "  "
+                };
                 Line::from(vec![
-                    Span::styled("  ", Style::default()),
+                    Span::raw(bullet),
                     Span::styled(field.label.to_string(), Style::default().fg(MUTED)),
                     Span::raw("  "),
-                    Span::styled(value_str.clone(), val_style),
+                    Span::styled(value_str, val_style),
                 ])
             }
         };
@@ -154,20 +203,6 @@ fn build_field_items<'a>(profile: &'a config::Profile, field_idx: usize, input: 
     }
 
     items
-}
-
-fn render_input_line(label: &str, buffer: &str, cursor: usize) -> Line<'static> {
-    use std::fmt::Write;
-    let cursor = cursor.min(buffer.len());
-    let mut display = String::with_capacity(buffer.len() + 1);
-    write!(display, "{}█{}", &buffer[..cursor], &buffer[cursor..]).unwrap();
-
-    Line::from(vec![
-        Span::styled("  ", Style::default()),
-        Span::styled(label.to_string(), Style::default().fg(MUTED)),
-        Span::raw("  "),
-        Span::styled(display, Style::default().fg(Color::Yellow)),
-    ])
 }
 
 pub fn run(mut app: App) -> (App, Option<String>) {
@@ -188,8 +223,14 @@ pub fn run(mut app: App) -> (App, Option<String>) {
 
             // ── header ──
             let header = Paragraph::new(Line::from(vec![
-                Span::styled("ccs", Style::default().fg(ACCENT).add_modifier(Modifier::BOLD)),
-                Span::styled("  profile manager for Claude Code", Style::default().fg(MUTED)),
+                Span::styled(
+                    "Claude Code Switcher",
+                    Style::default().fg(ACCENT).add_modifier(Modifier::BOLD),
+                ),
+                Span::styled(
+                    "  profile manager for Claude Code",
+                    Style::default().fg(MUTED),
+                ),
             ]));
             frame.render_widget(
                 header.block(
@@ -207,20 +248,34 @@ pub fn run(mut app: App) -> (App, Option<String>) {
                 .split(v[1]);
 
             // ── left: profile list ──
+            let left_focused = app.focus == Focus::Left;
+            let selected_idx = app.selected_index();
             let profile_items: Vec<ListItem> = app
                 .names
                 .iter()
-                .map(|name| {
+                .enumerate()
+                .map(|(i, name)| {
+                    let bullet = if left_focused && i == selected_idx {
+                        " ▸"
+                    } else {
+                        "  "
+                    };
                     let desc = app.config.profiles[name]
                         .description
                         .as_deref()
                         .unwrap_or("");
                     if desc.is_empty() {
-                        ListItem::new(name.as_str())
+                        ListItem::new(Line::from(vec![
+                            Span::raw(bullet),
+                            Span::raw(name.as_str()),
+                        ]))
                     } else {
                         ListItem::new(vec![
-                            Line::from(name.as_str()),
-                            Line::from(Span::styled(desc, Style::default().fg(MUTED))),
+                            Line::from(vec![Span::raw(bullet), Span::raw(name.as_str())]),
+                            Line::from(vec![
+                                Span::raw("  "),
+                                Span::styled(desc, Style::default().fg(MUTED)),
+                            ]),
                         ])
                     }
                 })
@@ -236,11 +291,16 @@ pub fn run(mut app: App) -> (App, Option<String>) {
                 .block(
                     Block::bordered()
                         .border_style(border_style)
-                        .title(Span::styled(" Profiles ", Style::default().fg(ACCENT).add_modifier(Modifier::BOLD)))
-                        .title_bottom(Span::styled(format!(" {count} profiles "), Style::default().fg(MUTED))),
+                        .title(Span::styled(
+                            " Profiles ",
+                            Style::default().fg(ACCENT).add_modifier(Modifier::BOLD),
+                        ))
+                        .title_bottom(Span::styled(
+                            format!(" {count} profiles "),
+                            Style::default().fg(MUTED),
+                        )),
                 )
-                .highlight_style(Style::default().fg(Color::Black).bg(ACCENT))
-                .highlight_symbol(" ▸");
+                .highlight_style(Style::default().fg(Color::Black).bg(ACCENT));
 
             frame.render_stateful_widget(list, body[0], &mut app.profile_list);
 
@@ -261,27 +321,37 @@ pub fn run(mut app: App) -> (App, Option<String>) {
                     Span::styled("name: ", Style::default().fg(MUTED)),
                     Span::styled(display, Style::default().fg(Color::Yellow)),
                     Span::raw("\n\n  "),
-                    Span::styled("Enter", Style::default().fg(ACCENT).add_modifier(Modifier::BOLD)),
+                    Span::styled(
+                        "Enter",
+                        Style::default().fg(ACCENT).add_modifier(Modifier::BOLD),
+                    ),
                     Span::styled(" to create, ", Style::default().fg(MUTED)),
-                    Span::styled("Esc", Style::default().fg(ACCENT).add_modifier(Modifier::BOLD)),
+                    Span::styled(
+                        "Esc",
+                        Style::default().fg(ACCENT).add_modifier(Modifier::BOLD),
+                    ),
                     Span::styled(" to cancel", Style::default().fg(MUTED)),
                 ]))
                 .block(
                     Block::bordered()
                         .border_style(right_border)
-                        .title(Span::styled(" New Profile ", Style::default().fg(ACCENT).add_modifier(Modifier::BOLD))),
+                        .title(Span::styled(
+                            " New Profile ",
+                            Style::default().fg(ACCENT).add_modifier(Modifier::BOLD),
+                        )),
                 );
                 frame.render_widget(create_text, body[1]);
             } else {
                 let selected = app.selected_name().unwrap_or("");
                 let profile = app.config.profiles.get(selected);
+                let right_focused = app.focus == Focus::Right;
                 let field_items = if let Some(profile) = profile {
-                    build_field_items(profile, app.field_idx, &app.input)
+                    build_field_items(profile, app.field_idx, &app.input, right_focused)
                 } else {
                     vec![ListItem::new("")]
                 };
 
-                let mut field_list = List::new(field_items)
+                let field_list = List::new(field_items)
                     .block(
                         Block::bordered()
                             .border_style(right_border)
@@ -292,50 +362,44 @@ pub fn run(mut app: App) -> (App, Option<String>) {
                     )
                     .highlight_style(Style::default().fg(Color::Black).bg(ACCENT));
 
-                if app.focus == Focus::Right {
-                    field_list = field_list.highlight_symbol(" ▸");
-                }
-
-                let mut field_state = ListState::default();
-                if app.focus == Focus::Right {
-                    field_state.select(Some(app.field_list_idx()));
-                }
+                let mut field_state =
+                    ListState::default().with_selected(Some(app.field_list_idx()));
                 frame.render_stateful_widget(field_list, body[1], &mut field_state);
             }
 
             // ── footer ──
             let footer = match (&app.input, app.focus) {
                 (InputState::Creating { .. }, _) => Line::from(vec![
-                    footer_span("Enter", "create"),
+                    footer_span("Enter"),
                     Span::raw(" "),
-                    footer_span("Esc", "cancel"),
+                    footer_span("Esc"),
                 ]),
                 (InputState::Editing { .. }, _) => Line::from(vec![
-                    footer_span("Enter", "confirm"),
+                    footer_span("Enter"),
                     Span::raw(" "),
-                    footer_span("Esc", "cancel"),
+                    footer_span("Esc"),
                 ]),
                 (InputState::None, Focus::Left) => Line::from(vec![
-                    footer_span("↑↓/jk", "navigate"),
+                    footer_span("↑↓/jk"),
                     Span::raw(" "),
-                    footer_span("n", "new"),
+                    footer_span("n"),
                     Span::raw(" "),
-                    footer_span("d", "delete"),
+                    footer_span("d"),
                     Span::raw(" "),
-                    footer_span("→", "edit"),
+                    footer_span("→/l"),
                     Span::raw(" "),
-                    footer_span("Enter", "select"),
+                    footer_span("Enter"),
                     Span::raw(" "),
-                    footer_span("q/ESC", "quit"),
+                    footer_span("q/ESC"),
                 ]),
                 (InputState::None, Focus::Right) => Line::from(vec![
-                    footer_span("↑↓/jk", "navigate"),
+                    footer_span("↑↓/jk"),
                     Span::raw(" "),
-                    footer_span("←", "back"),
+                    footer_span("←/h"),
                     Span::raw(" "),
-                    footer_span("Enter", "edit"),
+                    footer_span("Enter"),
                     Span::raw(" "),
-                    footer_span("q/ESC", "quit"),
+                    footer_span("q/ESC"),
                 ]),
             };
             frame.render_widget(Paragraph::new(footer).centered(), v[2]);
@@ -345,140 +409,108 @@ pub fn run(mut app: App) -> (App, Option<String>) {
         }
 
         match event::read() {
-            Ok(Event::Key(key)) if key.kind == KeyEventKind::Press => {
-                match &mut app.input {
-                    InputState::Creating { buffer, cursor } => match key.code {
-                        KeyCode::Enter => {
-                            let name = buffer.trim().to_string();
-                            if !name.is_empty() && !app.config.profiles.contains_key(&name) {
-                                app.config.profiles.insert(name.clone(), config::Profile::default());
+            Ok(Event::Key(key)) if key.kind == KeyEventKind::Press => match &mut app.input {
+                InputState::Creating { buffer, cursor } => match key.code {
+                    KeyCode::Enter => {
+                        let name = buffer.trim().to_string();
+                        if !name.is_empty() && !app.config.profiles.contains_key(&name) {
+                            app.config
+                                .profiles
+                                .insert(name.clone(), config::Profile::default());
+                            config::save_config(&app.config);
+                            app.refresh_names();
+                            if let Some(pos) = app.names.iter().position(|n| n == &name) {
+                                app.profile_list.select(Some(pos));
+                            }
+                        }
+                        app.input = InputState::None;
+                    }
+                    KeyCode::Esc => app.input = InputState::None,
+                    _ => handle_edit_key(buffer, cursor, key.code),
+                },
+                InputState::Editing { buffer, cursor } => match key.code {
+                    KeyCode::Enter => {
+                        let saved = buffer.clone();
+                        let name = app.selected_name().map(|s| s.to_string());
+                        if let Some(ref name) = name {
+                            if let Some(profile) = app.config.profiles.get_mut(name) {
+                                let field = &PROFILE_FIELDS[app.field_idx];
+                                (field.set)(profile, saved);
                                 config::save_config(&app.config);
-                                app.names.clear();
-                                app.names.extend(app.config.profiles.keys().cloned());
-                                app.names.sort();
-                                if let Some(pos) = app.names.iter().position(|n| n == &name) {
-                                    app.profile_list.select(Some(pos));
+                            }
+                        }
+                        app.input = InputState::None;
+                    }
+                    KeyCode::Esc => {
+                        app.input = InputState::None;
+                    }
+                    _ => handle_edit_key(buffer, cursor, key.code),
+                },
+                InputState::None => match app.focus {
+                    Focus::Left => match key.code {
+                        KeyCode::Enter => {
+                            let name = app.selected_name().map(|s| s.to_string());
+                            ratatui::restore();
+                            return (app, name);
+                        }
+                        KeyCode::Esc | KeyCode::Char('q') => {
+                            ratatui::restore();
+                            return (app, None);
+                        }
+                        KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+                            ratatui::restore();
+                            return (app, None);
+                        }
+                        KeyCode::Down | KeyCode::Char('j') => app.profile_next(),
+                        KeyCode::Up | KeyCode::Char('k') => app.profile_prev(),
+                        KeyCode::Right | KeyCode::Char('l') => app.focus = Focus::Right,
+                        KeyCode::Char('n') => {
+                            app.input = InputState::Creating {
+                                buffer: String::new(),
+                                cursor: 0,
+                            };
+                        }
+                        KeyCode::Char('d') => {
+                            if let Some(name) = app.selected_name().map(|s| s.to_string()) {
+                                app.config.profiles.remove(&name);
+                                config::save_config(&app.config);
+                                app.refresh_names();
+                                if app.names.is_empty() {
+                                    app.profile_list.select(None);
+                                } else {
+                                    let idx = app.selected_index().min(app.names.len() - 1);
+                                    app.profile_list.select(Some(idx));
                                 }
                             }
-                            app.input = InputState::None;
-                        }
-                        KeyCode::Esc => app.input = InputState::None,
-                        KeyCode::Backspace => {
-                            if *cursor > 0 {
-                                buffer.remove(*cursor - 1);
-                                *cursor -= 1;
-                            }
-                        }
-                        KeyCode::Left => *cursor = cursor.saturating_sub(1),
-                        KeyCode::Right => *cursor = (*cursor + 1).min(buffer.len()),
-                        KeyCode::Char(c) => {
-                            buffer.insert(*cursor, c);
-                            *cursor += 1;
                         }
                         _ => {}
                     },
-                    InputState::Editing { buffer, cursor } => match key.code {
+                    Focus::Right => match key.code {
+                        KeyCode::Esc | KeyCode::Char('q') => {
+                            ratatui::restore();
+                            return (app, None);
+                        }
+                        KeyCode::Down | KeyCode::Char('j') => app.field_next(),
+                        KeyCode::Up | KeyCode::Char('k') => app.field_prev(),
+                        KeyCode::Left | KeyCode::Char('h') => app.focus = Focus::Left,
                         KeyCode::Enter => {
-                            let saved = buffer.clone();
                             let name = app.selected_name().map(|s| s.to_string());
                             if let Some(ref name) = name {
-                                if let Some(profile) = app.config.profiles.get_mut(name) {
+                                if let Some(profile) = app.config.profiles.get(name) {
                                     let field = &PROFILE_FIELDS[app.field_idx];
-                                    (field.set)(profile, saved);
-                                    config::save_config(&app.config);
+                                    let value = (field.get)(profile).unwrap_or_default();
+                                    let len = value.len();
+                                    app.input = InputState::Editing {
+                                        buffer: value,
+                                        cursor: len,
+                                    };
                                 }
                             }
-                            app.input = InputState::None;
-                        }
-                        KeyCode::Esc => {
-                            app.input = InputState::None;
-                        }
-                        KeyCode::Backspace => {
-                            if *cursor > 0 {
-                                buffer.remove(*cursor - 1);
-                                *cursor -= 1;
-                            }
-                        }
-                        KeyCode::Left => {
-                            *cursor = cursor.saturating_sub(1);
-                        }
-                        KeyCode::Right => {
-                            *cursor = (*cursor + 1).min(buffer.len());
-                        }
-                        KeyCode::Char(c) => {
-                            buffer.insert(*cursor, c);
-                            *cursor += 1;
                         }
                         _ => {}
                     },
-                    InputState::None => match app.focus {
-                        Focus::Left => match key.code {
-                            KeyCode::Enter => {
-                                let name = app.selected_name().map(|s| s.to_string());
-                                ratatui::restore();
-                                return (app, name);
-                            }
-                            KeyCode::Esc | KeyCode::Char('q') => {
-                                ratatui::restore();
-                                return (app, None);
-                            }
-                            KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => {
-                                ratatui::restore();
-                                return (app, None);
-                            }
-                            KeyCode::Down | KeyCode::Char('j') => app.profile_next(),
-                            KeyCode::Up | KeyCode::Char('k') => app.profile_prev(),
-                            KeyCode::Right => app.focus = Focus::Right,
-                            KeyCode::Char('n') => {
-                                app.input = InputState::Creating {
-                                    buffer: String::new(),
-                                    cursor: 0,
-                                };
-                            }
-                            KeyCode::Char('d') => {
-                                if let Some(name) = app.selected_name().map(|s| s.to_string()) {
-                                    app.config.profiles.remove(&name);
-                                    config::save_config(&app.config);
-                                    app.names.clear();
-                                    app.names.extend(app.config.profiles.keys().cloned());
-                                    app.names.sort();
-                                    if app.names.is_empty() {
-                                        app.profile_list.select(None);
-                                    } else {
-                                        let idx = app.selected_index().min(app.names.len() - 1);
-                                        app.profile_list.select(Some(idx));
-                                    }
-                                }
-                            }
-                            _ => {}
-                        },
-                        Focus::Right => match key.code {
-                            KeyCode::Esc | KeyCode::Char('q') => {
-                                ratatui::restore();
-                                return (app, None);
-                            }
-                            KeyCode::Down | KeyCode::Char('j') => app.field_next(),
-                            KeyCode::Up | KeyCode::Char('k') => app.field_prev(),
-                            KeyCode::Left => app.focus = Focus::Left,
-                            KeyCode::Enter => {
-                                let name = app.selected_name().map(|s| s.to_string());
-                                if let Some(ref name) = name {
-                                    if let Some(profile) = app.config.profiles.get(name) {
-                                        let field = &PROFILE_FIELDS[app.field_idx];
-                                        let value = (field.get)(profile).unwrap_or_default();
-                                        let len = value.len();
-                                        app.input = InputState::Editing {
-                                            buffer: value,
-                                            cursor: len,
-                                        };
-                                    }
-                                }
-                            }
-                            _ => {}
-                        },
-                    },
-                }
-            }
+                },
+            },
             Err(_) => {
                 ratatui::restore();
                 crate::fatal("failed to read input");
