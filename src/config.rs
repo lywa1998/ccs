@@ -46,6 +46,22 @@ pub struct Config {
 
 // ── config loading ─────────────────────────────────────────────────────────
 
+const DEFAULT_CONFIG: &str = r#"# ccs configuration file
+#
+# Example:
+# [profiles.my-provider]
+# description = "My API provider"
+#
+# [profiles.my-provider.provider]
+# base_url = "https://api.example.com"
+# env_key = "MY_API_KEY"
+#
+# [profiles.my-provider.models]
+# default = "claude-sonnet-4-6"
+
+[profiles]
+"#;
+
 fn config_path() -> String {
     let home = env::var("HOME")
         .or_else(|_| env::var("USERPROFILE"))
@@ -53,15 +69,29 @@ fn config_path() -> String {
     format!("{home}/.config/ccs/config.toml")
 }
 
+fn ensure_config_dir(cpath: &str) {
+    if let Some(parent) = std::path::Path::new(cpath).parent() {
+        std::fs::create_dir_all(parent)
+            .unwrap_or_else(|e| fatal(&format!("cannot create config directory: {e}")));
+    }
+}
+
 pub fn load_config() -> Config {
     let cpath = config_path();
-    let content = std::fs::read_to_string(&cpath)
-        .unwrap_or_else(|e| fatal(&format!("cannot read {cpath}: {e}")));
+    let content = match std::fs::read_to_string(&cpath) {
+        Ok(content) => content,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+            ensure_config_dir(&cpath);
+            std::fs::write(&cpath, DEFAULT_CONFIG)
+                .unwrap_or_else(|e| fatal(&format!("cannot write default config to {cpath}: {e}")));
+            return Config {
+                profiles: HashMap::new(),
+            };
+        }
+        Err(e) => fatal(&format!("cannot read {cpath}: {e}")),
+    };
     let config: Config = toml::from_str(&content)
         .unwrap_or_else(|e| fatal(&format!("invalid config in {cpath}: {e}")));
-    if config.profiles.is_empty() {
-        fatal("no profiles defined in config");
-    }
     config
 }
 
@@ -113,6 +143,7 @@ pub fn build_env(profile: &Profile, reveal: bool) -> HashMap<String, String> {
 
 pub fn save_config(config: &Config) {
     let cpath = config_path();
+    ensure_config_dir(&cpath);
     let content = toml::to_string_pretty(config)
         .unwrap_or_else(|e| fatal(&format!("failed to serialize config: {e}")));
     std::fs::write(&cpath, content)

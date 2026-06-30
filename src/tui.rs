@@ -115,18 +115,34 @@ impl App {
     }
 }
 
+/// Convert a character index to a byte position in `s`.
+fn char_to_byte(s: &str, char_idx: usize) -> usize {
+    s.char_indices()
+        .nth(char_idx)
+        .map(|(i, _)| i)
+        .unwrap_or(s.len())
+}
+
+/// Handle a key press during text editing.
+/// `cursor` is a **character** index (not a byte index).
 fn handle_edit_key(buffer: &mut String, cursor: &mut usize, code: KeyCode) {
     match code {
         KeyCode::Backspace => {
             if *cursor > 0 {
-                buffer.remove(*cursor - 1);
-                *cursor -= 1;
+                let prev = *cursor - 1;
+                let byte_pos = char_to_byte(buffer, prev);
+                buffer.remove(byte_pos);
+                *cursor = prev;
             }
         }
         KeyCode::Left => *cursor = cursor.saturating_sub(1),
-        KeyCode::Right => *cursor = (*cursor + 1).min(buffer.len()),
+        KeyCode::Right => {
+            let char_count = buffer.chars().count();
+            *cursor = (*cursor + 1).min(char_count);
+        }
         KeyCode::Char(c) => {
-            buffer.insert(*cursor, c);
+            let byte_pos = char_to_byte(buffer, *cursor);
+            buffer.insert(byte_pos, c);
             *cursor += 1;
         }
         _ => {}
@@ -169,10 +185,10 @@ fn build_field_items<'a>(
 
         let line = match input {
             InputState::Editing { buffer, cursor } if i == field_idx => {
-                let cursor = (*cursor).min(buffer.len());
+                let byte_pos = char_to_byte(buffer, *cursor);
                 let mut display = String::with_capacity(buffer.len() + 1);
                 use std::fmt::Write;
-                write!(display, "{}█{}", &buffer[..cursor], &buffer[cursor..]).unwrap();
+                write!(display, "{}█{}", &buffer[..byte_pos], &buffer[byte_pos..]).unwrap();
                 Line::from(vec![
                     Span::raw(if focused { " ▸" } else { "  " }),
                     Span::styled(field.label.to_string(), Style::default().fg(MUTED)),
@@ -312,9 +328,9 @@ pub fn run(mut app: App) -> (App, Option<String>) {
             };
 
             if let InputState::Creating { buffer, cursor } = &app.input {
-                let c = (*cursor).min(buffer.len());
+                let byte_pos = char_to_byte(buffer, *cursor);
                 let mut display = buffer.clone();
-                display.insert(c, '█');
+                display.insert(byte_pos, '█');
                 let create_text = Paragraph::new(Line::from(vec![
                     Span::raw("\n"),
                     Span::raw("  "),
@@ -499,7 +515,7 @@ pub fn run(mut app: App) -> (App, Option<String>) {
                                 if let Some(profile) = app.config.profiles.get(name) {
                                     let field = &PROFILE_FIELDS[app.field_idx];
                                     let value = (field.get)(profile).unwrap_or_default();
-                                    let len = value.len();
+                                    let len = value.chars().count();
                                     app.input = InputState::Editing {
                                         buffer: value,
                                         cursor: len,
